@@ -39,12 +39,12 @@ description: Produces a self-contained narrated animated explainer web page (sin
          {"key":"outro","title":"结语","sub":"……","sents":["……"]}]}
 ```
 
-可选 `"watermark":"…"`：右下角水印，网页、封面、视频都带（`#wm`，见 template/index.html）。首段 key 必须是 `intro`，末段必须是 `outro`。`sents` 里写数字 N 表示 N 秒静音（思考/跟读停顿），照样占一个句子序号 i。写完先把旁白全文给用户过目，再往下做（改稿会让后面全部重跑）。
+可选 `"watermark":"…"`：右下角水印，网页、封面、视频都带（`#wm`，见 template/index.html）。同时自动开启防盗版：一枚很淡的同文字斜水印每 18 秒换个位置（`#wm2`，压在场景之上，固定裁剪/打码去不掉；snap.sh 不查它的重叠），mp4 写入 artist/copyright/comment 元数据。首段 key 必须是 `intro`，末段必须是 `outro`。`sents` 里写数字 N 表示 N 秒静音（思考/跟读停顿），照样占一个句子序号 i。写完先把旁白全文给用户过目，再往下做（改稿会让后面全部重跑）。
 
 **2. 配音**：默认 Poe ElevenLabs `elevenlabs-v3`，整句一个女声读中英文。`POE_API_KEY` 从环境变量或 `<proj>` 及其任一上级目录的 `.env` 读取，不要写进脚本。Poe 无法选音色（`--voice` 会被读出来），也不返回逐字时间，逐字时间按有声段字数比例估算。语速比 edge-tts 慢约 15%。脚本按句缓存在 `build/tts/`，只改一句时只重新合成那一句。产物 `build/timeline.json` 包含逐字时间戳。退回 edge-tts 用 `"tts":"edge"`，此时 `voice`/`rate`/`voice_en` 生效（如云健 `zh-CN-YunjianNeural` `-5%`；`voice_en` 即中英双声）。小句超过 22 字会告警（字幕按 ≤20 字切块），回到第 1 步拆句。
 
 **3. 配乐**：程序合成，长度自动对齐 `total`。换 `--seed` 得到另一首；同一 seed 结果完全一致。script.json 的 `"music"` 选情绪：
-- `happy`：112 BPM 大调 I-V-vi-IV，马林巴琶音 + 沙锤 + 钟琴，轻快。学生反馈氛围乐太闷，面向学生/语言课一律用它；`notebook` 主题默认就是它
+- `happy`：112 BPM 大调 I-V-vi-IV，马林巴琶音 + 沙锤 + 钟琴，轻快。旁白说话时旋律/节奏层（琶音、沙锤、钟琴、拨弦，两种情绪都适用）压到 -20 dB 只剩铺底和低音，停顿和章节卡恢复完整（`MEL_UNDER_SPEECH`；变化的旋律最干扰听讲）。学生反馈氛围乐太闷，面向学生/语言课一律用它；`notebook` 主题默认就是它
 - `calm`：五声音阶氛围乐（pad + 拨弦 + 章节锣），纪录片腔；其他主题默认
 
 **4. scenes.js**：先在对话里列出分镜表（场景 / 句子 / 画面 / 锚点词），再写代码。API 见 `reference/authoring.md`。

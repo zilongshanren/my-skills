@@ -7,6 +7,8 @@
 mood "calm":  pentatonic ambient bed (pad + sparse plucks + card gongs + reverb).
 mood "happy": bright 112 BPM loop (I-V-vi-IV pad, bass, marimba arpeggio, shaker, glockenspiel).
 Mood comes from script.json "music"; default happy for theme notebook, else calm.
+Melodic/rhythmic layers (marimba, shaker, bells, plucks) drop to MEL_UNDER_SPEECH while narration speaks:
+changing-state sound under speech hurts verbal working memory; pad + bass carry on, full music returns in pauses/cards.
 
 Usage: uv run music.py <proj> [--seed N]   -> <proj>/build/music.mp3
 """
@@ -21,6 +23,7 @@ PENTA = [0, 2, 4, 7, 9]  # 宫商角徵羽
 CHORDS = [[0, 7, 12], [9, 16, 21], [4, 9, 16], [7, 14, 19], [2, 9, 14]]  # semitones above ROOT
 SEG = 20.0
 TARGET_RMS_DB, PEAK_DB = -25.5, -3.0  # -6dB vs original: user found music too loud under narration
+MEL_UNDER_SPEECH = 0.1  # melody gain while narration speaks (-20 dB)
 
 
 def hz(semi, base=ROOT):
@@ -105,7 +108,7 @@ def shaker(amp, rng):
     return amp * np.diff(rng.standard_normal(len(t) + 1)) * np.exp(-t / 0.018)
 
 
-def happy(put, total, cards, rng):
+def happy(put, mel, total, cards, rng):
     beat = 60 / BPM
     bar = 4 * beat
     for b in range(int(total / bar) + 1):
@@ -117,21 +120,21 @@ def happy(put, total, cards, rng):
         tones = tri + [tri[0] + 12]
         for j, a in enumerate(ARP):
             if rng.random() > 0.15:
-                put(mallet(hz(tones[a] + 12), 0.05 if j % 2 else 0.065), t0 + j * beat / 2, 0.35 + 0.3 * (j % 2))
+                mel(mallet(hz(tones[a] + 12), 0.05 if j % 2 else 0.065), t0 + j * beat / 2, 0.35 + 0.3 * (j % 2))
         for j in range(8):
-            put(shaker(0.02 if j % 2 else 0.01, rng), t0 + j * beat / 2, 0.65)
+            mel(shaker(0.02 if j % 2 else 0.01, rng), t0 + j * beat / 2, 0.65)
 
     for c in cards:  # rising glockenspiel run at each section card
         i = int(rng.integers(5, 8))
         for j in range(5):
-            put(bell(hz(penta_note(i) + 12), 0.07), c + 0.4 + beat / 2 * j, rng.uniform(0.3, 0.7))
+            mel(bell(hz(penta_note(i) + 12), 0.07), c + 0.4 + beat / 2 * j, rng.uniform(0.3, 0.7))
             i += 1
 
     t, i = 4 * bar, 8
     while t < total - 6:  # short bell motifs on the beat, skipping card windows
         if not any(c - 1 <= t < c + 4 for c in cards):
             for j in range(int(rng.integers(2, 4))):
-                put(bell(hz(penta_note(i) + 12), rng.uniform(0.03, 0.045)), t + j * beat, rng.uniform(0.3, 0.7))
+                mel(bell(hz(penta_note(i) + 12), rng.uniform(0.03, 0.045)), t + j * beat, rng.uniform(0.3, 0.7))
                 i = int(np.clip(i + rng.choice([-1, 1, 2]), 5, 12))
         t += bar * int(rng.integers(2, 5))
 
@@ -144,6 +147,22 @@ def reverb(x, rng, wet=0.3):
     m = 1 << int(np.ceil(np.log2(len(x) + n_ir)))
     y = np.fft.irfft(np.fft.rfft(x, m) * np.fft.rfft(ir, m), m)[:len(x)]
     return (1 - wet) * x + wet * y
+
+
+def speech_mask(tl, n):
+    """1 in pauses, MEL_UNDER_SPEECH while narration speaks; gaps < 1.5 s stay down, 0.4 s ramps."""
+    iv = []
+    for a, b in sorted((x["t0"] - 0.3, x["t1"] + 0.3) for s in tl["secs"] for x in s["sents"] if x["text"].strip()):
+        if iv and a - iv[-1][1] < 1.5:
+            iv[-1][1] = max(iv[-1][1], b)
+        else:
+            iv.append([a, b])
+    m = np.ones(n)
+    for a, b in iv:
+        m[max(0, int(a * SR)):int(b * SR)] = MEL_UNDER_SPEECH
+    k = int(0.4 * SR)  # moving-average ramp
+    c = np.concatenate([[0], np.cumsum(np.pad(m, (k // 2, k - k // 2), mode="edge"))])
+    return (c[k:] - c[:-k])[:n] / k
 
 
 def main():
@@ -160,15 +179,18 @@ def main():
     rng = np.random.default_rng(a.seed)
     n = round(total * SR)
 
-    L, R = np.zeros(n), np.zeros(n)
+    L, R, ML, MR = np.zeros(n), np.zeros(n), np.zeros(n), np.zeros(n)
 
-    def put(sig, at, pan):
+    def put(sig, at, pan, l=L, r=R):
         s = int(at * SR)
-        add(L, s, sig * np.sqrt(1 - pan))
-        add(R, s, sig * np.sqrt(pan))
+        add(l, s, sig * np.sqrt(1 - pan))
+        add(r, s, sig * np.sqrt(pan))
+
+    def mel(sig, at, pan):
+        put(sig, at, pan, ML, MR)
 
     if mood == "happy":
-        happy(put, total, cards, rng)
+        happy(put, mel, total, cards, rng)
     else:
         p = pad(n, rng)
         L += p
@@ -184,17 +206,20 @@ def main():
         t, i = 2.0, 7
         while t < total - 6:  # sparse melody, skipping card windows
             if not any(c - 1 <= t < c + 4 for c in cards):
-                put(pluck(hz(penta_note(i)), rng.uniform(0.07, 0.11)), t, rng.uniform(0.25, 0.75))
+                mel(pluck(hz(penta_note(i)), rng.uniform(0.07, 0.11)), t, rng.uniform(0.25, 0.75))
             i = int(np.clip(i + rng.choice([-2, -1, 1, 2]), 4, 13))
             t += rng.uniform(1.4, 3.6) + (rng.uniform(3, 7) if rng.random() < 0.15 else 0)
 
     wet = 0.18 if mood == "happy" else 0.3  # drier keeps the rhythm crisp
-    x = np.stack([reverb(L, rng, wet), reverb(R, rng, wet)], 1)
+    bed = np.stack([reverb(L, rng, wet), reverb(R, rng, wet)], 1)
+    mx = np.stack([reverb(ML, rng, wet), reverb(MR, rng, wet)], 1)
     tt = np.arange(n) / SR
-    x *= np.clip(tt / 3, 0, 1)[:, None] * np.clip((total - tt) / 5, 0, 1)[:, None]
+    fade = (np.clip(tt / 3, 0, 1) * np.clip((total - tt) / 5, 0, 1))[:, None]
+    x = (bed + mx) * fade
+    # level is set on the full mix, so pauses sound exactly as loud as before; only speech spans get quieter
     rms = np.sqrt(np.mean(x ** 2))
     g = min(10 ** (TARGET_RMS_DB / 20) / rms, 10 ** (PEAK_DB / 20) / np.max(np.abs(x)))
-    x = (x * g).astype(np.float32)
+    x = ((bed + mx * speech_mask(tl, n)[:, None]) * fade * g).astype(np.float32)
 
     out = proj / "build/music.mp3"
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(SR), "-ac", "2", "-i", "-",

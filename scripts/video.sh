@@ -47,6 +47,7 @@ const fs=require('fs'),{spawn}=require('child_process'),sleep=ms=>new Promise(r=
   const iv=[];for(const[a,b]of await ev('TL.secs.flatMap(s=>s.sents.map(x=>[x.t0-.25,x.t1+.25]))')){const l=iv[iv.length-1];if(l&&a<=l[1])l[1]=Math.max(l[1],b);else iv.push([a,b])}
   const w=iv.map(([a,b])=>`min(clip((t-${(a-.3).toFixed(3)})/0.3,0,1),clip((${(b+.3).toFixed(3)}-t)/0.3,0,1))`).join('+')||'0';
   fs.writeFileSync(`${work}/af.txt`,`[2:a]volume='0.765-0.2975*min(1,${w})':eval=frame[m];[1:a][m]amix=inputs=2:duration=first:normalize=0[a]`);
+  fs.writeFileSync(`${work}/wm.txt`,await ev(`$('#wm').textContent.trim()`));
   const dur=await ev('DUR'),n=Math.ceil(dur*fps);
   const ff=spawn('ffmpeg',['-y','-loglevel','error','-f','image2pipe','-framerate',fps,'-c:v','mjpeg','-i','-',
     '-c:v','libx264','-preset','medium','-crf','18','-pix_fmt','yuv420p',`${work}/v.mp4`],{stdio:['pipe','inherit','inherit']});
@@ -62,6 +63,8 @@ const fs=require('fs'),{spawn}=require('child_process'),sleep=ms=>new Promise(r=
 })().catch(e=>{console.error('video:',e.message);process.exit(1)});
 JS
 cover="${out%.mp4} 封面.png"; cp "$work/cover.png" "$cover"
+wm=$(cat "$work/wm.txt"); meta=()  # anti-piracy: author/copyright tags in the container
+[ -n "$wm" ] && meta=(-metadata "artist=$wm" -metadata "copyright=© $wm" -metadata "comment=© $wm. All rights reserved. 未经授权禁止转载")
 ffmpeg -y -loglevel error -i "$work/v.mp4" -i "$work/narr.mp3" -i "$work/mus.mp3" -i "$cover" -filter_complex_script "$work/af.txt" \
-  -map 0:v -map '[a]' -map 3:v -c:v:0 copy -c:v:1 mjpeg -disposition:v:1 attached_pic -c:a aac -b:a 192k -movflags +faststart "$out"
+  -map 0:v -map '[a]' -map 3:v -c:v:0 copy -c:v:1 mjpeg -disposition:v:1 attached_pic -c:a aac -b:a 192k ${meta[@]+"${meta[@]}"} -movflags +faststart "$out"
 echo "-> $out"; echo "-> $cover"

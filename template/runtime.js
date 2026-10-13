@@ -84,6 +84,12 @@ function renderChap(t){let s=null;for(const x of TL.secs){if(x.key!=='intro'&&x.
 /* ========= background mood ========= */
 const MOOD=[]; // [t, intensity 0..1] keyframes pushed by scenes; theme's renderBG reads mood(t)
 function mood(t){if(!MOOD.length)return .2;if(t<=MOOD[0][0])return MOOD[0][1];for(let i=1;i<MOOD.length;i++){if(t<MOOD[i][0]){const a=MOOD[i-1],b=MOOD[i];return lerp(a[1],b[1],E.sine(P(t,a[0],b[0])))}}return MOOD[MOOD.length-1][1]}
+/* ========= roaming watermark (anti-piracy) ========= */
+// deterministic in t, so the page and every exported frame agree; spots stay clear of the chapter tag and subtitles
+const wm2=$('#wm2'),WM_SLOT=18;
+function renderWm2(t){if(!wm2.textContent.trim())return;const i=Math.floor(t/WM_SLOT),u=t-i*WM_SLOT;
+  css(wm2,'opacity',Math.min(P(u,0,.8),1-P(u,WM_SLOT-.8,WM_SLOT)).toFixed(3));
+  css(wm2,'transform',`translate(${(260+hash(i)*1200).toFixed(0)}px,${(170+hash(i+.5)*620).toFixed(0)}px) rotate(-12deg)`)}
 /* ========= render ========= */
 let shakeX=0,shakeY=0;
 function render(t){
@@ -97,7 +103,7 @@ function render(t){
   }
   fx.clearRect(0,0,1920,1080);drawAmbient(t);
   for(const f of fxList){if(t>=f.t0&&t<=f.t1){fx.save();f.draw(fx,t);fx.restore()}}
-  renderSubs(t);renderFacts(t);renderChap(t);
+  renderSubs(t);renderFacts(t);renderChap(t);renderWm2(t);
 }
 /* ========= audio & clock ========= */
 function b64blob(b64,type){const bin=atob(b64);const u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return URL.createObjectURL(new Blob([u],{type}))}
