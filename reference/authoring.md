@@ -59,6 +59,8 @@ BUILDERS.push(()=>{
   In `update` you may set `sc.zoomOverride`, `sc.sx`, `sc.sy` (px shake/pan).
 - DOM order = z-order during cross-fades: builders run in push order.
 - `scenes.js` is one script: a SyntaxError anywhere (e.g. duplicate `const` in one scope) blanks the whole page; snap.sh prints it.
+  It shares that scope with runtime.js and theme.js: never redeclare their top-level names (`fit`, `seek`, `play`, `render`,
+  `scene`, `$`, `S`, `W`, `P`, `E`, `op`, `tr`, `at`, …; list them with `grep -o '^\(function\|const\) [A-Za-z_$]*' template/runtime.js`).
 
 Timing conventions (from the example):
 - first scene `t0=0`, `fi:.01`; last scene `t1=TL.total+.5`, `fo:.01`.

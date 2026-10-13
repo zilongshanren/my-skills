@@ -45,7 +45,13 @@ def main():
     if not theme_dir.is_dir():
         die(f"unknown theme {script.get('theme')!r}: {theme_dir} not found")
     hint = "run tts_timeline.py / music.py / fonts.py first"
-    tl_text = need(build / "timeline.json", hint).read_text(encoding="utf-8")
+    tl = json.loads(need(build / "timeline.json", hint).read_text(encoding="utf-8"))
+    # chapter title/sub are display-only: take them from script.json so editing them needs no TTS rerun
+    meta = {s["key"]: s for s in script["secs"]}
+    for sec in tl["secs"]:
+        if sec["key"] in meta:
+            sec["title"], sec["sub"] = meta[sec["key"]].get("title", ""), meta[sec["key"]].get("sub", "")
+    tl_text = json.dumps(tl, ensure_ascii=False)
     narr, mus = need(build / "narration.mp3", hint), need(build / "music.mp3", hint)
     fonts = json.loads(need(build / "fonts.json", hint).read_text(encoding="utf-8"))
     scenes = need(proj / "scenes.js").read_text(encoding="utf-8")
@@ -63,7 +69,7 @@ def main():
         consts.append(f"const {name}={js_json(p.read_text(encoding='utf-8'))};")
     consts += [f'const AUDIO_NARR="{b64(narr)}";', f'const AUDIO_MUS="{b64(mus)}";']
 
-    total = json.loads(tl_text)["total"]
+    total = tl["total"]
     m, s = divmod(round(total), 60)
     esc = lambda k: html.escape(script.get(k, ""), quote=False)
     vals = {

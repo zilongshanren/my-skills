@@ -46,7 +46,10 @@ const layout=()=>{const st=document.getElementById('stage').getBoundingClientRec
   let id=0,err=null;const cbs={};ws.onmessage=e=>{const m=JSON.parse(e.data);if(cbs[m.id]){cbs[m.id](m);delete cbs[m.id]}
     else if(m.method==='Runtime.exceptionThrown'){const d=m.params.exceptionDetails;err=`${d.exception?.description||d.text} (line ${d.lineNumber+1})`;console.error('page exception:',err)}
     else if(m.method==='Runtime.consoleAPICalled'&&/^(warning|error)$/.test(m.params.type))console.error(`page ${m.params.type}:`,m.params.args.map(a=>a.value??a.description).join(' '))};
-  const cmd=(method,params={})=>new Promise((res,rej)=>{cbs[++id]=m=>m.error?rej(new Error(JSON.stringify(m.error))):res(m.result);ws.send(JSON.stringify({id,method,params}))});
+  // Chrome dying mid-run (crash/OOM) closes the socket: fail loudly instead of hanging or exiting 0 with missing output
+  let fin=false;ws.onclose=()=>{if(!fin){console.error('snap: Chrome connection closed before finishing');process.exit(1)}};
+  const cmd=(method,params={})=>new Promise((res,rej)=>{const n=++id,to=setTimeout(()=>{delete cbs[n];rej(new Error(`CDP ${method} timed out (60s)`))},60000);
+    cbs[n]=m=>{clearTimeout(to);m.error?rej(new Error(JSON.stringify(m.error))):res(m.result)};ws.send(JSON.stringify({id:n,method,params}))});
   const ev=async e=>{const r=await cmd('Runtime.evaluate',{expression:e,awaitPromise:true,returnByValue:true});const d=r.exceptionDetails;if(d)throw new Error(d.exception?.description||d.text);return r.result.value};
   await cmd('Emulation.setDeviceMetricsOverride',{width:1920,height:1080,deviceScaleFactor:1,mobile:false});
   await cmd('Runtime.enable');await cmd('Page.navigate',{url});
@@ -59,6 +62,6 @@ const layout=()=>{const st=document.getElementById('stage').getBoundingClientRec
     fs.writeFileSync(`${out}/t${t}.png`,Buffer.from(data,'base64'));console.log(`${out}/t${t}.png`);
     for(const b of await ev(`(${layout})()`))console.error(`layout t=${t}: ${b}`);
   }
-  ws.close();
+  fin=true;ws.close();
 })().catch(e=>{console.error('snap:',e.message);process.exit(1)});
 JS

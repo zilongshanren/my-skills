@@ -26,7 +26,10 @@ const fs=require('fs'),{spawn}=require('child_process'),sleep=ms=>new Promise(r=
   const ws=new WebSocket(page.webSocketDebuggerUrl);await new Promise(r=>ws.onopen=r);
   let id=0;const cbs={};ws.onmessage=e=>{const m=JSON.parse(e.data);if(cbs[m.id]){cbs[m.id](m);delete cbs[m.id]}
     else if(m.method==='Runtime.exceptionThrown'){const d=m.params.exceptionDetails;console.error('page exception:',d.exception?.description||d.text)}};
-  const cmd=(method,params={})=>new Promise((res,rej)=>{cbs[++id]=m=>m.error?rej(new Error(JSON.stringify(m.error))):res(m.result);ws.send(JSON.stringify({id,method,params}))});
+  // Chrome dying mid-run (crash/OOM) closes the socket: fail loudly instead of hanging or exiting 0 with missing output
+  let fin=false;ws.onclose=()=>{if(!fin){console.error('video: Chrome connection closed before finishing');process.exit(1)}};
+  const cmd=(method,params={})=>new Promise((res,rej)=>{const n=++id,to=setTimeout(()=>{delete cbs[n];rej(new Error(`CDP ${method} timed out (60s)`))},60000);
+    cbs[n]=m=>{clearTimeout(to);m.error?rej(new Error(JSON.stringify(m.error))):res(m.result)};ws.send(JSON.stringify({id:n,method,params}))});
   const ev=async e=>{const r=await cmd('Runtime.evaluate',{expression:e,awaitPromise:true,returnByValue:true});const d=r.exceptionDetails;if(d)throw new Error(d.exception?.description||d.text);return r.result.value};
   await cmd('Emulation.setDeviceMetricsOverride',{width:1920,height:1080,deviceScaleFactor:1,mobile:false});
   await cmd('Runtime.enable');await cmd('Page.navigate',{url});
@@ -55,7 +58,7 @@ const fs=require('fs'),{spawn}=require('child_process'),sleep=ms=>new Promise(r=
     if(!ff.stdin.write(Buffer.from(data,'base64')))await new Promise(r=>ff.stdin.once('drain',r));
     if(i%(fps*10)===0)process.stderr.write(`\rframe ${i}/${n}`);
   }
-  ff.stdin.end();await done;process.stderr.write(`\rframe ${n}/${n}\n`);ws.close();
+  ff.stdin.end();await done;process.stderr.write(`\rframe ${n}/${n}\n`);fin=true;ws.close();
 })().catch(e=>{console.error('video:',e.message);process.exit(1)});
 JS
 cover="${out%.mp4} 封面.png"; cp "$work/cover.png" "$cover"

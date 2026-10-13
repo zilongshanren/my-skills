@@ -57,7 +57,7 @@ description: Produces a self-contained narrated animated explainer web page (sin
 
 **7. 检查**：截图至少覆盖片头、每张章节卡（`card+2`）、每个场景的中段、夜景/知识卡出现时刻、片尾，然后用 Read 看图。时间从 `build/timeline.json` 读：
 `python3 -c "import json;[print(s['key'],s['card'],s['start'],s['end']) for s in json.load(open('<proj>/build/timeline.json'))['secs']]"`
-snap.sh 会打印页面异常、warning 和 `layout t=…:` 行（可见的场景文字/图片超出画面，或压进字幕区 y>880；任何可见场景图形、字幕、知识卡碰到水印 → `watermark overlap`；可见场景图形碰到左上角章节标签 `#chapTag` → `chapter tag overlap`），输出必须干净（不能有 `W miss`、`layout`）。几何问题交给它，可以密集采样（如每 2s 一帧）；看图只看拼板（ffmpeg tile），一轮即可，重点看它查不到的：
+snap.sh 会打印页面异常、warning 和 `layout t=…:` 行（可见的场景文字/图片超出画面，或压进字幕区 y>880；任何可见场景图形、字幕、知识卡碰到水印 → `watermark overlap`；可见场景图形碰到左上角章节标签 `#chapTag` → `chapter tag overlap`），输出必须干净（不能有 `W miss`、`layout`）。Chrome 中途崩掉（并行导出多集时内存吃紧会发生）时 snap.sh / video.sh 立即报错、退出码非 0，重跑即可；退出码 0 就说明请求的帧全出了。几何问题交给它，可以密集采样（如每 2s 一帧）；看图只看拼板（ffmpeg tile），一轮即可，重点看它查不到的：
 - 知识卡是否压住主体
 - 元素之间互相重叠
 - 场景切换时有没有空帧
