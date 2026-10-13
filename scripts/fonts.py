@@ -7,7 +7,7 @@
 Usage: uv run fonts.py <proj>   (theme from script.json, like bundle.py)
 Writes <proj>/build/fonts/<alias>-<weights>[-<i>].woff2 and <proj>/build/fonts.json.
 """
-import json, re, sys, urllib.error, urllib.parse, urllib.request
+import hashlib, json, re, sys, time, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
@@ -15,10 +15,19 @@ CHUNK = 500  # chars per text= request
 EXTRA = "，。、；：？！“”‘’《》〈〉「」『』（）【】·—…～→←↑↓↺⛶▶❚▾⏮⏭■□●○◆◇★☆×÷°％"
 
 
-def get(url):
+def get(url, tries=4):
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return r.read()
+    for k in range(tries):  # Google Fonts handshakes time out now and then: retry transient network errors
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.read()
+        except urllib.error.HTTPError:
+            raise
+        except Exception as e:
+            if k == tries - 1:
+                raise
+            print(f"  network error ({e}), retry {k + 1}/{tries - 1}", file=sys.stderr)
+            time.sleep(2 * (k + 1))
 
 
 def main():
@@ -42,10 +51,15 @@ def main():
 
     out_dir = proj / "build/fonts"
     out_dir.mkdir(parents=True, exist_ok=True)
-    for old in out_dir.glob("*.woff2"):
-        old.unlink()
+    specs = (theme / "fonts.json").read_text()
+    key = hashlib.sha256((specs + text).encode()).hexdigest()
+    key_f, fj = proj / "build/fonts.key", proj / "build/fonts.json"
+    if key_f.is_file() and key_f.read_text() == key and fj.is_file() \
+            and all((proj / "build" / e["file"]).is_file() for e in json.loads(fj.read_text())):
+        print(f"fonts: charset unchanged, cached -> {fj}")
+        return
     entries = []
-    for alias, spec in json.loads((theme / "fonts.json").read_text()).items():
+    for alias, spec in json.loads(specs).items():
         ws = sorted(spec.get("weights", [400]))
         css = ""
         for i in range(0, len(text), CHUNK):  # long text= makes Google ignore subsetting and return all slices
@@ -89,7 +103,12 @@ def main():
             print(f"  {name}: {len(data) / 1024:.0f} KB", file=sys.stderr)
         if not blocks:
             sys.exit(f"ERROR {alias}: no @font-face in response")
-    (proj / "build/fonts.json").write_text(json.dumps(entries, ensure_ascii=False, indent=1))
+    keep = {Path(e["file"]).name for e in entries}
+    for old in out_dir.glob("*.woff2"):  # only after a full successful fetch, so a network failure leaves the old set intact
+        if old.name not in keep:
+            old.unlink()
+    fj.write_text(json.dumps(entries, ensure_ascii=False, indent=1))
+    key_f.write_text(key)
     print(f"fonts: {len(entries)} file(s) -> {proj / 'build/fonts.json'}")
 
 
